@@ -121,14 +121,14 @@ set_variables() {
         # shellcheck disable=SC2154
         source_folder="$sonarr_episodefile_sourcefolder"
         # shellcheck disable=SC2154
-        dest_path="$sonarr_episodefile_path"
+        #dest_path="$sonarr_episodefile_path"
         app_name="Sonarr"
     elif [[ -n "${radarr_moviefile_sourcepath:-}" ]]; then
         source_path="$radarr_moviefile_sourcepath"
         # shellcheck disable=SC2154
         source_folder="$radarr_moviefile_sourcefolder"
         # shellcheck disable=SC2154
-        dest_path="$radarr_moviefile_path"
+        #dest_path="$radarr_moviefile_path"
         app_name="Radarr"
     else
         handle_error "Neither Sonarr nor Radarr environment variables detected."
@@ -137,7 +137,7 @@ set_variables() {
     # Validate the paths
     [[ -z "$source_path" || ! -e "$source_path" ]] && handle_error "Invalid or non-existent source path: $source_path"
     [[ -z "$source_folder" || ! -d "$source_folder" ]] && handle_error "Invalid or non-existent source folder: $source_folder"
-    [[ -z "$dest_path" || ! -e "$dest_path" ]] && handle_error "Invalid or non-existent destination path: $dest_path"
+    #[[ -z "$dest_path" || ! -e "$dest_path" ]] && handle_error "Invalid or non-existent destination path: $dest_path"
 }
 
 # Function to check if a folder contains video files recursively
