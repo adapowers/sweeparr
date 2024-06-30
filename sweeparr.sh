@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Define default config file location
-CONFIG_FILE="$SCRIPT_DIR/sweeparr.yaml"
+CONFIG_FILE="$SCRIPT_DIR/sweeparr.env"
 
 # Override config file location if provided
 if [ -n "${CONFIG_FILE_PATH:-}" ]; then
@@ -28,12 +28,10 @@ fi
 
 # Source the configuration file if it exists
 if [ -f "$CONFIG_FILE" ]; then
-    DRY_RUN=$(yq e '.dry_run' "$CONFIG_FILE")
-    LOG_LEVEL=$(yq e '.log_level' "$CONFIG_FILE")
-    DOWNLOAD_FOLDERS_TMP=$(yq e '.download_folders' "$CONFIG_FILE" | paste -sd "," -)
-    USE_TRASH=$(yq e '.use_trash' "$CONFIG_FILE")
-    TRASH_FOLDER=$(yq e '.trash_folder' "$CONFIG_FILE")
-    WAIT_TIME=$(yq e '.wait_time' "$CONFIG_FILE")
+    set -a
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+    set +a
 else
     echo "Configuration file not found at $CONFIG_FILE. Exiting."
     exit 1
@@ -65,7 +63,7 @@ log_message() {
 }
 
 # Convert comma-separated string to array
-IFS=',' read -r -a DOWNLOAD_FOLDERS <<< "$DOWNLOAD_FOLDERS_TMP"
+IFS=',' read -r -a DOWNLOAD_FOLDERS <<< "$DOWNLOAD_FOLDERS"
 unset IFS
 
 # Log script start

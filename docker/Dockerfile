@@ -3,10 +3,6 @@ FROM alpine:latest
 
 # Install necessary packages
 RUN apk add --no-cache bash coreutils tini
-RUN apk add --no-cache curl && \
-    curl -L -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && \
-    chmod +x /usr/local/bin/yq && \
-    apk del curl
 
 # Create a shared volume directory
 RUN mkdir -p /sweeparr /tmp/sweeparr

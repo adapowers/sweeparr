@@ -17,19 +17,28 @@ fi
 # Copy the script from the temporary location to the shared volume directory
 cp /tmp/sweeparr/sweeparr.sh /sweeparr/sweeparr.sh
 
-# Initialize a blank config file if it doesn't exist
-CONFIG_FILE=${CONFIG_FILE_PATH:-/sweeparr/sweeparr.yaml}
+# Initialize a blank .env config file if it doesn't exist
+CONFIG_FILE=${CONFIG_FILE_PATH:-/sweeparr/sweeparr.env}
 
 if [ ! -f "$CONFIG_FILE" ]; then
     cat <<EOF > "$CONFIG_FILE"
-dry_run: true
-log_level: DEBUG
-download_folders:
-  - /full/path/to/download/folder
-  - /another/full/path/to/download/folder
-use_trash: false
-trash_folder: ""
-wait_time: 45
+# If enabled, will simply tell you the files/folders it would delete
+DRY_RUN=true
+
+# Logging level. Options: DEBUG, INFO, WARNING, ERROR
+LOG_LEVEL=DEBUG
+
+# Sweeparr will protect deletion of these folders at any cost
+DOWNLOAD_FOLDERS="/full/path/to/download/folder,/another/full/path/to/download/folder"
+
+# If enabled, will move to trash folder instead of deleting (you'll be responsible for that)
+USE_TRASH=false
+
+# Full path to trash folder (must be writable by Sonarr/Radarr)
+TRASH_FOLDER=""
+
+# Time to wait before execution
+WAIT_TIME=45
 EOF
     echo "Created a new configuration file at $CONFIG_FILE. Please customize it as needed."
 fi
