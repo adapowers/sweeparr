@@ -1,6 +1,10 @@
 # Use an Alpine base image
 FROM alpine:latest
 
+# Build arguments for PUID and PGID
+ARG PUID=1000
+ARG PGID=1000
+
 # Install necessary packages
 RUN apk add --no-cache bash coreutils tini
 
@@ -18,6 +22,9 @@ ENV RUN_MODE=docker
 
 # Direct logs to container stdout unless customized
 ENV LOG_FILE=/proc/1/fd/1
+
+# Set ownership of the shared volume directory
+RUN chown -R ${PUID}:${PGID} /shared/scripts
 
 # Use tini as the entrypoint
 ENTRYPOINT ["/sbin/tini", "--"]
