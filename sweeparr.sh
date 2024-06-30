@@ -10,29 +10,34 @@
 # It uses environment variables set by these applications at runtime.
 # It will do nothing (or worse) if run directly from the command line.
 
+# --------------------------------
+
 # Enable strict mode for better error handling
 set -euo pipefail
 
 # Get the directory of the script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Logging configuration
-: "${LOG_LEVEL:=INFO}"
-: "${LOG_FILE:=$SCRIPT_DIR/sweeparr.log}"
+# Define default config file location
+CONFIG_FILE="$SCRIPT_DIR/sweeparr.yaml"
 
-# Default configuration for manual mode
-if [ "${RUN_MODE:-}" != "docker" ]; then
-    DRY_RUN=false
-    USE_TRASH=false
-    TRASH_FOLDER=""
-    WAIT_TIME=45
-    DOWNLOAD_FOLDERS=(
-        "/full/path/to/download/folder"
-        "/another/full/path/to/download/folder"
-    )
-    VIDEO_EXTENSIONS='\.(3gp|3g2|asf|wmv|avi|divx|evo|f4v|flv|h265|hevc|mkv|mk3d|mp4|mpg|mpeg|m2p|ps|ts|m2ts|mxf|ogg|mov|qt|rmvb|vob|webm)$'
+# Override config file location if provided
+if [ -n "${CONFIG_FILE_PATH:-}" ]; then
+    CONFIG_FILE="$CONFIG_FILE_PATH"
 fi
-# --- ERROR/LOGGING FUNCTIONS
+
+# Source the configuration file if it exists
+if [ -f "$CONFIG_FILE" ]; then
+    DRY_RUN=$(yq e '.dry_run' "$CONFIG_FILE")
+    LOG_LEVEL=$(yq e '.log_level' "$CONFIG_FILE")
+    DOWNLOAD_FOLDERS_TMP=$(yq e '.download_folders' "$CONFIG_FILE" | paste -sd "," -)
+    USE_TRASH=$(yq e '.use_trash' "$CONFIG_FILE")
+    TRASH_FOLDER=$(yq e '.trash_folder' "$CONFIG_FILE")
+    WAIT_TIME=$(yq e '.wait_time' "$CONFIG_FILE")
+else
+    echo "Configuration file not found at $CONFIG_FILE. Exiting."
+    exit 1
+fi
 
 # Logging levels
 declare -A LOG_LEVELS=([DEBUG]=0 [INFO]=1 [WARNING]=2 [ERROR]=3)
@@ -59,47 +64,18 @@ log_message() {
     fi
 }
 
+# Convert comma-separated string to array
+IFS=',' read -r -a DOWNLOAD_FOLDERS <<< "$DOWNLOAD_FOLDERS_TMP"
+unset IFS
+
 # Log script start
 log_message "DEBUG" "Starting script"
-
-# --- DOCKER
-
-# Override configuration if running in Docker mode
-# shellcheck disable=SC2128
-# shellcheck disable=SC2178
-if [ "${RUN_MODE:-}" == "docker" ]; then
-    DEFAULT_LOG_FILE=/proc/1/fd/1
-    LOG_FILE=${LOG_FILE:-$DEFAULT_LOG_FILE}
-
-    # If a custom log location is set, create a symbolic link to the container logs
-    if [[ "$LOG_FILE" != "$DEFAULT_LOG_FILE" ]]; then
-        ln -sf "$DEFAULT_LOG_FILE" "$LOG_FILE"
-    fi
-
-    DRY_RUN=${DRY_RUN:-false}
-    USE_TRASH=${USE_TRASH:-false}
-    TRASH_FOLDER=${TRASH_FOLDER:-""}
-    LOG_LEVEL=${LOG_LEVEL:-"INFO"}
-    WAIT_TIME=${WAIT_TIME:-45}
-    DOWNLOAD_FOLDERS=${DOWNLOAD_FOLDERS:-""}
-
-    # Load YAML list from docker-compose to array if provided
-    if [ -z "$DOWNLOAD_FOLDERS" ]; then
-        IFS=',' read -r -a DOWNLOAD_FOLDERS <<< "${DOWNLOAD_FOLDERS//[[$'\n'] ]/,}" || handle_error "Failed setting DOWNLOAD_FOLDERS from ENV. Did you specify them in Docker command/compose?"
-        unset IFS
-    fi
-
-    VIDEO_EXTENSIONS=${VIDEO_EXTENSIONS:-'\.(3gp|3g2|asf|wmv|avi|divx|evo|f4v|flv|h265|hevc|mkv|mk3d|mp4|mpg|mpeg|m2p|ps|ts|m2ts|mxf|ogg|mov|qt|rmvb|vob|webm)$'}
-fi
-
-# --- CHECKS
 
 # Ensure TRASH_FOLDER is set if using trash option
 [[ "$USE_TRASH" == true && -z "$TRASH_FOLDER" ]] && handle_error "TRASH_FOLDER is not set even though USE_TRASH is on. Exiting."
 
 # Ensure DOWNLOAD_FOLDERS is set
-# shellcheck disable=SC2128
-[[ -n "$DOWNLOAD_FOLDERS" ]] && handle_error "DOWNLOAD_FOLDERS environment variable is not set. Exiting."
+[[ -z "${DOWNLOAD_FOLDERS[*]}" ]] && handle_error "DOWNLOAD_FOLDERS not set. Exiting."
 
 # Ensure DOWNLOAD_FOLDERS are readable
 for folder in "${DOWNLOAD_FOLDERS[@]}"; do
