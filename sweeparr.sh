@@ -21,17 +21,17 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 : "${LOG_FILE:=$SCRIPT_DIR/sweeparr.log}"
 
 # Default configuration for manual mode
-RUN_MODE=${RUN_MODE:-"manual"}
-DRY_RUN=false
-USE_TRASH=false
-TRASH_FOLDER=""
-WAIT_TIME=45
-DOWNLOAD_FOLDERS=(
-    "/full/path/to/download/folder"
-    "/another/full/path/to/download/folder"
-)
-VIDEO_EXTENSIONS='\.(3gp|3g2|asf|wmv|avi|divx|evo|f4v|flv|h265|hevc|mkv|mk3d|mp4|mpg|mpeg|m2p|ps|ts|m2ts|mxf|ogg|mov|qt|rmvb|vob|webm)$'
-
+if [ "${RUN_MODE:-}" != "docker" ]; then
+    DRY_RUN=false
+    USE_TRASH=false
+    TRASH_FOLDER=""
+    WAIT_TIME=45
+    DOWNLOAD_FOLDERS=(
+        "/full/path/to/download/folder"
+        "/another/full/path/to/download/folder"
+    )
+    VIDEO_EXTENSIONS='\.(3gp|3g2|asf|wmv|avi|divx|evo|f4v|flv|h265|hevc|mkv|mk3d|mp4|mpg|mpeg|m2p|ps|ts|m2ts|mxf|ogg|mov|qt|rmvb|vob|webm)$'
+fi
 # --- ERROR/LOGGING FUNCTIONS
 
 # Logging levels
@@ -50,7 +50,7 @@ log_message() {
     local level="$1"
     local message="$2"
     local tag="Sweeparr"
-    local process="${app_name:+$app_name }:$$"
+    local process="${app_name:+$app_name:}$$"
     if [[ ${LOG_LEVELS[$level]} -ge ${LOG_LEVELS[$LOG_LEVEL]} ]]; then
         local timestamp
         timestamp=$(date "+%Y-%m-%d %H:%M:%S")
@@ -67,7 +67,7 @@ log_message "DEBUG" "Starting script"
 # Override configuration if running in Docker mode
 # shellcheck disable=SC2128
 # shellcheck disable=SC2178
-if [ "$RUN_MODE" == "docker" ]; then
+if [ "${RUN_MODE:-}" == "docker" ]; then
     DEFAULT_LOG_FILE=/proc/1/fd/1
     LOG_FILE=${LOG_FILE:-$DEFAULT_LOG_FILE}
 
@@ -84,7 +84,7 @@ if [ "$RUN_MODE" == "docker" ]; then
     DOWNLOAD_FOLDERS=${DOWNLOAD_FOLDERS:-""}
 
     # Load YAML list from docker-compose to array if provided
-    if [ -n "$DOWNLOAD_FOLDERS" ]; then
+    if [ -z "$DOWNLOAD_FOLDERS" ]; then
         IFS=',' read -r -a DOWNLOAD_FOLDERS <<< "${DOWNLOAD_FOLDERS//[[$'\n'] ]/,}" || handle_error "Failed setting DOWNLOAD_FOLDERS from ENV. Did you specify them in Docker command/compose?"
         unset IFS
     fi
@@ -95,11 +95,18 @@ fi
 # --- CHECKS
 
 # Ensure TRASH_FOLDER is set if using trash option
-[[ -n "$USE_TRASH" && -z "$TRASH_FOLDER" ]] && handle_error "TRASH_FOLDER is not set even though USE_TRASH is on. Exiting."
+[[ "$USE_TRASH" == true && -z "$TRASH_FOLDER" ]] && handle_error "TRASH_FOLDER is not set even though USE_TRASH is on. Exiting."
 
 # Ensure DOWNLOAD_FOLDERS is set
 # shellcheck disable=SC2128
-[[ -z "$DOWNLOAD_FOLDERS" ]] && handle_error "DOWNLOAD_FOLDERS environment variable is not set. Exiting."
+[[ -n "$DOWNLOAD_FOLDERS" ]] && handle_error "DOWNLOAD_FOLDERS environment variable is not set. Exiting."
+
+# Ensure DOWNLOAD_FOLDERS are readable
+for folder in "${DOWNLOAD_FOLDERS[@]}"; do
+    if [ ! -r "$folder" ]; then
+        handle_error "Download folder $folder is not readable. Exiting."
+    fi
+done
 
 # Log configuration
 log_message "INFO" "Configuration: DRY_RUN=$DRY_RUN, USE_TRASH=$USE_TRASH, TRASH_FOLDER=$TRASH_FOLDER, LOG_FILE=$LOG_FILE, LOG_LEVEL=$LOG_LEVEL, WAIT_TIME=$WAIT_TIME"
