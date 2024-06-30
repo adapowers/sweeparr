@@ -21,7 +21,7 @@ ENV RUN_MODE=docker
 ENV LOG_FILE=/proc/1/fd/1
 
 # Use tini as the entrypoint
-ENTRYPOINT ["tini", "--", "docker-entrypoint.sh"]
+ENTRYPOINT ["tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 
 # Default command to keep the container running
 CMD ["tail", "-f", "/dev/null"]
