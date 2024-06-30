@@ -16,6 +16,9 @@ RUN chmod +x /shared/scripts/sweeparr.sh
 # Set environment variable for mode
 ENV RUN_MODE=docker
 
+# Direct logs to container stdout unless customized
+ENV LOG_FILE=/proc/1/fd/1
+
 # Use tini as the entrypoint
 ENTRYPOINT ["/sbin/tini", "--"]
 

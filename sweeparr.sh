@@ -93,10 +93,21 @@ if [ "$RUN_MODE" == "manual" ]; then
 # --- CONFIGURATION: DOCKER
 
 elif [ "$RUN_MODE" == "docker" ]; then
+    # Default log file for Docker environment
+    DEFAULT_LOG_FILE=/proc/1/fd/1
+
+    # Set default log file if not specified
+    LOG_FILE=${LOG_FILE:-$DEFAULT_LOG_FILE}
+
+    # If a custom log location is set, create a symbolic link to the container logs
+    if [[ "$LOG_FILE" != "$DEFAULT_LOG_FILE" ]]; then
+        ln -sf "$DEFAULT_LOG_FILE" "$LOG_FILE"
+    fi
+
     DRY_RUN=${DRY_RUN:-false}
     USE_TRASH=${USE_TRASH:-false}
     TRASH_FOLDER=${TRASH_FOLDER:-""}
-    LOG_FILE=${LOG_FILE:-"$SCRIPT_DIR/sweeparr.log"}
+    #LOG_FILE=${LOG_FILE:-"$SCRIPT_DIR/sweeparr.log"}
     LOG_LEVEL=${LOG_LEVEL:-"INFO"}
     WAIT_TIME=${WAIT_TIME:-45}
 
