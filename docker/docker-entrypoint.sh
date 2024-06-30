@@ -17,8 +17,9 @@ fi
 # Copy the script from the temporary location to the shared volume directory
 cp /tmp/sweeparr/sweeparr.sh /sweeparr/sweeparr.sh
 
-# Initialize a blank .env config file if it doesn't exist
+# Initialize blank .env config and log files if they don't exist
 CONFIG_FILE=${CONFIG_FILE_PATH:-/sweeparr/.env}
+LOG_FILE=${LOG_FILE_PATH:-/sweeparr/sweeparr.log}
 
 if [ ! -f "$CONFIG_FILE" ]; then
     cat <<EOF > "$CONFIG_FILE"
@@ -41,10 +42,21 @@ TRASH_FOLDER=""
 WAIT_TIME=45
 EOF
     echo "Created a new configuration file at $CONFIG_FILE. Please customize it as needed."
+    chown sweeparr:sweeparr "$CONFIG_FILE"
 fi
+
+# Create the log file if it doesn't exist
+if [ ! -f "$LOG_FILE" ]; then
+    touch "$LOG_FILE"
+    chown sweeparr:sweeparr "$LOG_FILE"
+fi
+
+# Hardlink the log file to stdout
+ln -sf /proc/1/fd/1 "$LOG_FILE"
 
 # Set ownership of the shared volume directory
 chown -R sweeparr:sweeparr /sweeparr
 
 # Execute the passed command
 exec "$@"
+

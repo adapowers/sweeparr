@@ -18,6 +18,9 @@ set -euo pipefail
 # Get the directory of the script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# Set default log file if not defined in .env
+: "${LOG_FILE:=$SCRIPT_DIR/sweeparr.log}"
+
 # Define default config file location
 CONFIG_FILE="$SCRIPT_DIR/.env"
 
@@ -38,7 +41,6 @@ else
 fi
 
 # Logging configuration
-LOG_FILE="${LOG_FILE:-$SCRIPT_DIR/sweeparr.log}"
 declare -A LOG_LEVELS=([DEBUG]=0 [INFO]=1 [WARNING]=2 [ERROR]=3)
 
 # Function to handle errors
