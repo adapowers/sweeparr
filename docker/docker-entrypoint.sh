@@ -15,7 +15,7 @@ if ! getent passwd sweeparr >/dev/null 2>&1; then
 fi
 
 # Set ownership of the shared volume directory
-chown -R sweeparr:sweeparr /sweeparr.sh
+chown -R sweeparr:sweeparr /sweeparr
 
 # Execute the passed command
 exec "$@"
