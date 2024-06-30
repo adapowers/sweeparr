@@ -2,7 +2,7 @@
 
 # Sweeparr for Sonarr/Radarr
 # Author: @adapowers
-# Version: 2024.29.06
+# Version: 2024.30.06
 # --------------------------------
 
 # NOTE:
@@ -19,18 +19,20 @@ set -euo pipefail
 declare -A LOG_LEVELS=([DEBUG]=0 [INFO]=1 [WARNING]=2 [ERROR]=3)
 
 # Get the directory of the script
+SCRIPT_NAME="Sweeparr"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Unified function to log and echo messages
 log_message() {
     local level="$1"
     local message="$2"
-    local tag="[Sweeparr]"
+    local tag="$SCRIPT_NAME"
+    local process="${app_name:+$app_name }:$$"
     if [[ ${LOG_LEVELS[$level]} -ge ${LOG_LEVELS[$LOG_LEVEL]} ]]; then
         local timestamp
         timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-        echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
-        echo "$tag $message"
+        echo "[$timestamp] [$level] [$process] $message" | tee -a "$LOG_FILE"
+        echo "[$tag] [$process] $message"
     fi
 }
 
@@ -42,28 +44,34 @@ handle_error() {
     exit "$exit_code"
 }
 
+# Log script start
+log_message "DEBUG" "Starting script"
+
 # --- CONFIGURATION: MANUAL
 
 # Check if running in Docker mode or manual mode
 RUN_MODE=${RUN_MODE:-"manual"}
 
+# Log run mode
+log_message "DEBUG" "Run mode: $RUN_MODE"
+
 # Customize these if you're running the script yourself locally
 if [ "$RUN_MODE" == "manual" ]; then
 
     # Set to true for dry run mode (no actual deletions or moves)
-    DRY_RUN=false
+    DRY_RUN=true
 
     # Set to true to move files to trash instead of deleting
     USE_TRASH=false
 
     # Location of the trash folder (only used if USE_TRASH is true)
-    TRASH_FOLDER="/full/path/to/trash/folder"
+    TRASH_FOLDER="/data/trash"
 
     # Log location (change if desired; default location is next to script file)
     LOG_FILE="$SCRIPT_DIR/sweeparr.log"
 
     # Logging level (DEBUG, INFO, WARNING, ERROR)
-    LOG_LEVEL="INFO"
+    LOG_LEVEL="DEBUG"
 
     # Wait time before execution (in seconds)
     WAIT_TIME=45
@@ -71,8 +79,11 @@ if [ "$RUN_MODE" == "manual" ]; then
     # Full paths to your download folders
     # (Sweeparr will not delete these folders)
     DOWNLOAD_FOLDERS=(
-        "/full/path/to/download/folders/here"
-        "/another/full/path/to/download/folders/here"
+        "/data/downloads/complete"
+        "/data/downloads/complete/tv"
+        "/data/downloads/complete/movies"
+        "/data/downloads/complete/anime/tv"
+        "/data/downloads/complete/anime/movies"
     )
 
     # Regular expression for video file extensions
@@ -112,32 +123,56 @@ fi
 # shellcheck disable=SC2128
 [[ -z "$DOWNLOAD_FOLDERS" ]] && handle_error "DOWNLOAD_FOLDERS environment variable is not set. Exiting."
 
+# Log configuration
+log_message "INFO" "Configuration: DRY_RUN=$DRY_RUN, USE_TRASH=$USE_TRASH, TRASH_FOLDER=$TRASH_FOLDER, LOG_FILE=$LOG_FILE, LOG_LEVEL=$LOG_LEVEL, WAIT_TIME=$WAIT_TIME"
+log_message "INFO" "Download folders: ${DOWNLOAD_FOLDERS[*]}"
+
 # --- MAIN FUNCTIONS
 
 # Function to set variables based on whether Sonarr or Radarr is calling the script
 set_variables() {
-    if [[ -n "${sonarr_episodefile_sourcepath:-}" ]]; then
-        source_path="$sonarr_episodefile_sourcepath"
-        # shellcheck disable=SC2154
-        source_folder="$sonarr_episodefile_sourcefolder"
-        # shellcheck disable=SC2154
-        #dest_path="$sonarr_episodefile_path"
+    if [[ -n "${sonarr_eventtype:-}" ]]; then
+        event_type="${sonarr_eventtype}"
         app_name="Sonarr"
-    elif [[ -n "${radarr_moviefile_sourcepath:-}" ]]; then
-        source_path="$radarr_moviefile_sourcepath"
-        # shellcheck disable=SC2154
-        source_folder="$radarr_moviefile_sourcefolder"
-        # shellcheck disable=SC2154
-        #dest_path="$radarr_moviefile_path"
+    elif [[ -n "${radarr_eventtype:-}" ]]; then
+        event_type="${radarr_eventtype}"
         app_name="Radarr"
     else
-        handle_error "Neither Sonarr nor Radarr environment variables detected."
+        handle_error "Neither Sonarr nor Radarr environment variables detected. (This is to be expected if you're running the script manually.)"
     fi
 
-    # Validate the paths
-    [[ -z "$source_path" || ! -e "$source_path" ]] && handle_error "Invalid or non-existent source path: $source_path"
-    [[ -z "$source_folder" || ! -d "$source_folder" ]] && handle_error "Invalid or non-existent source folder: $source_folder"
-    #[[ -z "$dest_path" || ! -e "$dest_path" ]] && handle_error "Invalid or non-existent destination path: $dest_path"
+    # Log event type
+    log_message "INFO" "Event type: $event_type"
+
+    # Handle different event types
+    case "$event_type" in
+        # Handle test event type
+        Test)
+            log_message "INFO" "Test event detected. Exiting script."
+            exit 0
+            ;;
+        
+        # Handle import event type
+        Import)
+            if [[ "$app_name" == "Sonarr" ]]; then
+                source_path="${sonarr_episodefile_sourcepath:-}"
+                source_folder="${sonarr_episodefile_sourcefolder:-}"
+                dest_path="${sonarr_episodefile_path:-}"
+            elif [[ "$app_name" == "Radarr" ]]; then
+                source_path="${radarr_moviefile_sourcepath:-}"
+                source_folder="${radarr_moviefile_sourcefolder:-}"
+                dest_path="${radarr_moviefile_path:-}"
+            else
+                handle_error "No $app_name import event environment variables detected. (This is to be expected if you're running the script manually.)"
+            fi
+            # Log paths
+            log_message "DEBUG" "Set variables: source_path=$source_path, source_folder=$source_folder, dest_path=$dest_path"
+            ;;
+        
+        *)
+            handle_error "This script is only designed for the 'Import' event type."
+            ;;
+    esac
 }
 
 # Function to check if a folder contains video files recursively
@@ -210,9 +245,9 @@ safe_remove() {
     # Check if it's a dry run, and log what would happen.
     if $DRY_RUN; then
         if $USE_TRASH; then
-            log_message "DEBUG" "[DRY RUN] Would $operation_desc ($operation_type): $target -> $trashed_name"
+            log_message "INFO" "[DRY RUN] Would $operation_desc ($operation_type): $target -> $trashed_name"
         else
-            log_message "DEBUG" "[DRY RUN] Would $operation_desc ($operation_type): $target"
+            log_message "INFO" "[DRY RUN] Would $operation_desc ($operation_type): $target"
         fi
         return 0
     fi
@@ -246,36 +281,48 @@ safe_remove() {
 start_cleanup() {
     log_message "INFO" "Checking if deletion/moving is possible..."
 
-    # Always attempt to delete or move the source file first
+    # Attempt to delete or move the source file first
     if [[ -f "$source_path" ]]; then
         local file_operation_type="single file"
         log_message "INFO" "Attempting to ${USE_TRASH:+move to trash}${USE_TRASH:-delete} ($file_operation_type): $source_path"
         safe_remove "$source_path" false
     else
-        log_message "WARNING" "Source file already deleted or moved: $source_path"
+        log_message "INFO" "Source file already deleted or moved: $source_path"
     fi
 
-    local target_folder
-    target_folder=$(find_safe_parent "$source_folder") || handle_error "Failed to determine safe parent folder"
+    # Check if the source folder exists before proceeding
+    if [[ -d "$source_folder" ]]; then
+        log_message "INFO" "Checking to see if folder can be deleted: $source_folder"
+        # Find the highest-level containing folder that's still a subpath of a download folder
+        local target_folder
+        target_folder=$(find_safe_parent "$source_folder")
+        log_message "DEBUG" "Safe parent folder determined: $target_folder"
 
-    case "$target_folder" in
-        protected)
-            log_message "INFO" "Known download folder, will not be deleted: $source_folder"
-            ;;
-        outside)
-            log_message "WARNING" "Folder outside known locations, will not be deleted: $source_folder"
-            ;;
-        *)
-            log_message "INFO" "Checking for remaining video files in: $target_folder"
-            if recursive_contains_video_files "$target_folder"; then
-                log_message "INFO" "Video files found. Not ${USE_TRASH:+moving}${USE_TRASH:-deleting} folder: $target_folder"
-            else
-                local folder_operation_type="folder"
-                log_message "INFO" "No video files found. Attempting to ${USE_TRASH:+move to trash}${USE_TRASH:-delete} ($folder_operation_type): $target_folder"
-                safe_remove "$target_folder" true
-            fi
-            ;;
-    esac
+        case "$target_folder" in
+            protected)
+                log_message "INFO" "Known download folder, will not be deleted: $source_folder"
+                ;;
+            outside)
+                log_message "INFO" "Folder outside known locations, will not be deleted: $source_folder"
+                ;;
+            *)
+                log_message "INFO" "Checking for remaining video files in: $target_folder"
+                if recursive_contains_video_files "$target_folder"; then
+                    log_message "INFO" "Video files found. Not ${USE_TRASH:+moving}${USE_TRASH:-deleting} folder: $target_folder"
+                else
+                    local folder_operation_type="folder"
+                    log_message "INFO" "No video files found. Attempting to ${USE_TRASH:+move to trash}${USE_TRASH:-delete} ($folder_operation_type): $target_folder"
+                    if [[ -d "$target_folder" ]]; then
+                        safe_remove "$target_folder" true
+                    else
+                        log_message "INFO" "Entire source folder already deleted or moved: $target_folder"
+                    fi
+                fi
+                ;;
+        esac
+    else
+        log_message "INFO" "Source folder already deleted or moved: $source_folder"
+    fi
 }
 
 # --- MAIN LOGIC
