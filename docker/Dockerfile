@@ -9,7 +9,7 @@ RUN mkdir -p /shared/scripts
 
 # Copy the script and entrypoint into the shared volume directory
 COPY ../sweeparr.sh /shared/scripts/sweeparr.sh
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY ./docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Make the script and entrypoint executable
 RUN chmod +x /shared/scripts/sweeparr.sh /usr/local/bin/docker-entrypoint.sh
