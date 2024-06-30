@@ -4,15 +4,12 @@ FROM alpine:latest
 # Install necessary packages
 RUN apk add --no-cache bash coreutils tini
 
-# Create a shared volume directory
-RUN mkdir -p /shared/scripts
-
 # Copy the script and entrypoint into the shared volume directory
-COPY /sweeparr.sh /shared/scripts/sweeparr.sh
+COPY /sweeparr.sh /sweeparr.sh
 COPY /docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Make the script and entrypoint executable
-RUN chmod +x /shared/scripts/sweeparr.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /sweeparr.sh /usr/local/bin/docker-entrypoint.sh
 
 # Set environment variable for mode
 ENV RUN_MODE=docker
