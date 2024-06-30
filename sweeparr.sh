@@ -10,31 +10,32 @@
 # It uses environment variables set by these applications at runtime.
 # It will do nothing (or worse) if run directly from the command line.
 
-# --- SETUP
-
 # Enable strict mode for better error handling
 set -euo pipefail
 
-# Logging levels
-declare -A LOG_LEVELS=([DEBUG]=0 [INFO]=1 [WARNING]=2 [ERROR]=3)
-
 # Get the directory of the script
-SCRIPT_NAME="Sweeparr"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Unified function to log and echo messages
-log_message() {
-    local level="$1"
-    local message="$2"
-    local tag="$SCRIPT_NAME"
-    local process="${app_name:+$app_name }:$$"
-    if [[ ${LOG_LEVELS[$level]} -ge ${LOG_LEVELS[$LOG_LEVEL]} ]]; then
-        local timestamp
-        timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-        echo "[$timestamp] [$level] [$process] $message" | tee -a "$LOG_FILE"
-        echo "[$tag] [$process] $message"
-    fi
-}
+# Logging configuration
+: "${LOG_LEVEL:=INFO}"
+: "${LOG_FILE:=$SCRIPT_DIR/sweeparr.log}"
+
+# Default configuration for manual mode
+RUN_MODE=${RUN_MODE:-"manual"}
+DRY_RUN=false
+USE_TRASH=false
+TRASH_FOLDER=""
+WAIT_TIME=45
+DOWNLOAD_FOLDERS=(
+    "/full/path/to/download/folder"
+    "/another/full/path/to/download/folder"
+)
+VIDEO_EXTENSIONS='\.(3gp|3g2|asf|wmv|avi|divx|evo|f4v|flv|h265|hevc|mkv|mk3d|mp4|mpg|mpeg|m2p|ps|ts|m2ts|mxf|ogg|mov|qt|rmvb|vob|webm)$'
+
+# --- ERROR/LOGGING FUNCTIONS
+
+# Logging levels
+declare -A LOG_LEVELS=([DEBUG]=0 [INFO]=1 [WARNING]=2 [ERROR]=3)
 
 # Function to handle errors
 handle_error() {
@@ -44,59 +45,30 @@ handle_error() {
     exit "$exit_code"
 }
 
+# Function to log and echo messages
+log_message() {
+    local level="$1"
+    local message="$2"
+    local tag="Sweeparr"
+    local process="${app_name:+$app_name }:$$"
+    if [[ ${LOG_LEVELS[$level]} -ge ${LOG_LEVELS[$LOG_LEVEL]} ]]; then
+        local timestamp
+        timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+        echo "[$timestamp] [$level] [$process] $message" | tee -a "$LOG_FILE"
+        echo "[$tag] [$process] $message"
+    fi
+}
+
 # Log script start
 log_message "DEBUG" "Starting script"
 
-# --- CONFIGURATION: MANUAL
+# --- DOCKER
 
-# Check if running in Docker mode or manual mode
-RUN_MODE=${RUN_MODE:-"manual"}
-
-# Log run mode
-log_message "DEBUG" "Run mode: $RUN_MODE"
-
-# Customize these if you're running the script yourself locally
-if [ "$RUN_MODE" == "manual" ]; then
-
-    # Set to true for dry run mode (no actual deletions or moves)
-    DRY_RUN=true
-
-    # Set to true to move files to trash instead of deleting
-    USE_TRASH=false
-
-    # Location of the trash folder (only used if USE_TRASH is true)
-    TRASH_FOLDER="/data/trash"
-
-    # Log location (change if desired; default location is next to script file)
-    LOG_FILE="$SCRIPT_DIR/sweeparr.log"
-
-    # Logging level (DEBUG, INFO, WARNING, ERROR)
-    LOG_LEVEL="DEBUG"
-
-    # Wait time before execution (in seconds)
-    WAIT_TIME=45
-
-    # Full paths to your download folders
-    # (Sweeparr will not delete these folders)
-    DOWNLOAD_FOLDERS=(
-        "/data/downloads/complete"
-        "/data/downloads/complete/tv"
-        "/data/downloads/complete/movies"
-        "/data/downloads/complete/anime/tv"
-        "/data/downloads/complete/anime/movies"
-    )
-
-    # Regular expression for video file extensions
-    # (Used to determine if a folder is empty of video files before deleting)
-    VIDEO_EXTENSIONS='\.(3gp|3g2|asf|wmv|avi|divx|evo|f4v|flv|h265|hevc|mkv|mk3d|mp4|mpg|mpeg|m2p|ps|ts|m2ts|mxf|ogg|mov|qt|rmvb|vob|webm)$'
-
-# --- CONFIGURATION: DOCKER
-
-elif [ "$RUN_MODE" == "docker" ]; then
-    # Default log file for Docker environment
+# Override configuration if running in Docker mode
+# shellcheck disable=SC2128
+# shellcheck disable=SC2178
+if [ "$RUN_MODE" == "docker" ]; then
     DEFAULT_LOG_FILE=/proc/1/fd/1
-
-    # Set default log file if not specified
     LOG_FILE=${LOG_FILE:-$DEFAULT_LOG_FILE}
 
     # If a custom log location is set, create a symbolic link to the container logs
@@ -107,21 +79,16 @@ elif [ "$RUN_MODE" == "docker" ]; then
     DRY_RUN=${DRY_RUN:-false}
     USE_TRASH=${USE_TRASH:-false}
     TRASH_FOLDER=${TRASH_FOLDER:-""}
-    #LOG_FILE=${LOG_FILE:-"$SCRIPT_DIR/sweeparr.log"}
     LOG_LEVEL=${LOG_LEVEL:-"INFO"}
     WAIT_TIME=${WAIT_TIME:-45}
-
-    # Ensure TRASH_FOLDER is set if using trash option
-    [[ -n "$USE_TRASH" && -z "$TRASH_FOLDER" ]] && handle_error "TRASH_FOLDER environment variable is not set even though USE_TRASH is on. Exiting."
-
-    # shellcheck disable=SC2178
     DOWNLOAD_FOLDERS=${DOWNLOAD_FOLDERS:-""}
 
-    # Load YAML list from docker-compose to array
-    IFS=',' read -r -a DOWNLOAD_FOLDERS <<< "${DOWNLOAD_FOLDERS//[[$'\n'] ]/,}" || handle_error "Failed setting DOWNLOAD_FOLDERS from ENV. Did you specify them in Docker command/compose?"
-    unset IFS
+    # Load YAML list from docker-compose to array if provided
+    if [ -n "$DOWNLOAD_FOLDERS" ]; then
+        IFS=',' read -r -a DOWNLOAD_FOLDERS <<< "${DOWNLOAD_FOLDERS//[[$'\n'] ]/,}" || handle_error "Failed setting DOWNLOAD_FOLDERS from ENV. Did you specify them in Docker command/compose?"
+        unset IFS
+    fi
 
-    # Regular expression for video file extensions
     VIDEO_EXTENSIONS=${VIDEO_EXTENSIONS:-'\.(3gp|3g2|asf|wmv|avi|divx|evo|f4v|flv|h265|hevc|mkv|mk3d|mp4|mpg|mpeg|m2p|ps|ts|m2ts|mxf|ogg|mov|qt|rmvb|vob|webm)$'}
 fi
 
@@ -137,8 +104,6 @@ fi
 # Log configuration
 log_message "INFO" "Configuration: DRY_RUN=$DRY_RUN, USE_TRASH=$USE_TRASH, TRASH_FOLDER=$TRASH_FOLDER, LOG_FILE=$LOG_FILE, LOG_LEVEL=$LOG_LEVEL, WAIT_TIME=$WAIT_TIME"
 log_message "INFO" "Download folders: ${DOWNLOAD_FOLDERS[*]}"
-
-# --- MAIN FUNCTIONS
 
 # Function to set variables based on whether Sonarr or Radarr is calling the script
 set_variables() {
