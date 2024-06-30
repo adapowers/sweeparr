@@ -37,7 +37,8 @@ else
     exit 1
 fi
 
-# Logging levels
+# Logging configuration
+LOG_FILE="${LOG_FILE:-$SCRIPT_DIR/sweeparr.log}"
 declare -A LOG_LEVELS=([DEBUG]=0 [INFO]=1 [WARNING]=2 [ERROR]=3)
 
 # Function to handle errors
