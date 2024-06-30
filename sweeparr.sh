@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Define default config file location
-CONFIG_FILE="$SCRIPT_DIR/sweeparr.env"
+CONFIG_FILE="$SCRIPT_DIR/.env"
 
 # Override config file location if provided
 if [ -n "${CONFIG_FILE_PATH:-}" ]; then

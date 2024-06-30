@@ -18,7 +18,7 @@ fi
 cp /tmp/sweeparr/sweeparr.sh /sweeparr/sweeparr.sh
 
 # Initialize a blank .env config file if it doesn't exist
-CONFIG_FILE=${CONFIG_FILE_PATH:-/sweeparr/sweeparr.env}
+CONFIG_FILE=${CONFIG_FILE_PATH:-/sweeparr/.env}
 
 if [ ! -f "$CONFIG_FILE" ]; then
     cat <<EOF > "$CONFIG_FILE"
