@@ -28,7 +28,8 @@ jobs:
     - name: Build and push
       uses: docker/build-push-action@v3
       with:
-        context: ./docker
+        context: .
+        file: ./docker/Dockerfile
         push: true
         platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6
         tags: adapowers/sweeparr:latest
