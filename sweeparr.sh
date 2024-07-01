@@ -49,22 +49,31 @@ handle_error() {
     exit "$exit_code"
 }
 
-# Function to log and echo messages
 log_message() {
     local level="$1"
     local message="$2"
     local tag="Sweeparr"
     local process="${app_name:+$app_name:}$$"
+    
     if [[ ${LOG_LEVELS[$level]} -ge ${LOG_LEVELS[$LOG_LEVEL]} ]]; then
         local timestamp
         timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-        echo "[$timestamp] [$level] [$process] $message" | tee -a "$LOG_FILE"
-        echo "[$tag] [$process] $message"
+        
+        # Format for log file
+        local log_format="[$timestamp] [$level] [$process] $message"
+        
+        # Format for console
+        local console_format="[$tag] [$process] $message"
+        
+        # Write to log file
+        echo "$log_format" >> "$LOG_FILE"
+        
+        # Write to console
+        echo "$console_format"
     fi
 }
-
 # Convert comma-separated string to array
-IFS=',' read -r -a DOWNLOAD_FOLDERS <<< "$DOWNLOAD_FOLDERS"
+IFS=',' read -r -a DOWNLOAD_FOLDERS <<<"$DOWNLOAD_FOLDERS"
 unset IFS
 
 # Log script start
@@ -102,13 +111,10 @@ set_variables() {
 
     # Handle different event types
     case "$event_type" in
-    # Handle test event type
     Test)
         log_message "INFO" "Test event detected. Exiting script."
         exit 0
         ;;
-
-    # Handle import event type
     Download|Import)
         if [[ "$app_name" == "Sonarr" ]]; then
             source_path="${sonarr_episodefile_sourcepath:-}"
@@ -124,7 +130,6 @@ set_variables() {
         # Log paths
         log_message "DEBUG" "Set variables: source_path=$source_path, source_folder=$source_folder, dest_path=$dest_path"
         ;;
-
     *)
         handle_error "This script is only designed for the 'Import' or 'Download' event types."
         ;;
@@ -139,6 +144,7 @@ recursive_contains_video_files() {
 
 declare -A trie
 
+# Function to build trie structure for download folders
 build_trie() {
     trie=()
     for path in "${DOWNLOAD_FOLDERS[@]}"; do
@@ -151,6 +157,7 @@ build_trie() {
     done
 }
 
+# Function to find the highest safe parent folder
 find_safe_parent() {
     local folder="$1"
     local current=""
@@ -206,15 +213,16 @@ generate_trashed_path() {
     echo "$trashed_path"
 }
 
+# Function to handle symbolic links
 handle_symlink() {
     local target="$1"
     local operation="$2"  # 'delete' or 'trash'
-    
+
     if [[ -L "$target" ]]; then
         local link_target
         link_target=$(readlink -f "$target")
         log_message "INFO" "Handling symbolic link: $target -> $link_target"
-        
+
         if [[ "$operation" == "delete" ]]; then
             rm "$target" || handle_error "Failed to delete symbolic link: $target"
             log_message "INFO" "Deleted symbolic link: $target"
@@ -224,31 +232,32 @@ handle_symlink() {
             mv "$target" "$trashed_name" || handle_error "Failed to move symbolic link to trash: $target"
             log_message "INFO" "Moved symbolic link to trash: $target -> $trashed_name"
         fi
-        
+
         return 0
     fi
-    
+
     return 1
 }
 
+# Function to check available space in trash folder
 check_trash_quota() {
     local required_space="$1"
-    
+
     # Get available space in KB
     local available_space
     available_space=$(df -Pk "$TRASH_FOLDER" | awk 'NR==2 {print $4}')
-    
+
     # Convert to bytes
     available_space=$((available_space * 1024))
-    
+
     log_message "DEBUG" "Available space in trash folder: $available_space bytes"
     log_message "DEBUG" "Required space for operation: $required_space bytes"
-    
+
     if [[ "$available_space" -lt "$required_space" ]]; then
         log_message "WARNING" "Not enough space in trash folder. Available: $available_space bytes, Required: $required_space bytes"
         return 1
     fi
-    
+
     return 0
 }
 
@@ -256,74 +265,66 @@ check_trash_quota() {
 safe_remove() {
     local target="$1"
     local is_dir="$2"
-    
+
     # Handle symlink first
     if handle_symlink "$target" "${USE_TRASH:+trash}${USE_TRASH:-delete}"; then
         return 0
     fi
 
-    local operation_type="file"
-    local operation_desc="delete"  # Default operation description
+    local operation_desc="delete"
     local trashed_name
 
-    [[ "$is_dir" == true ]] && operation_type="folder"
-
-    # Determine the operation description based on trash or delete
     if $USE_TRASH; then
         operation_desc="move to trash"
-        trashed_name=$(generate_trashed_path "$target")  # Generate trash name only if needed
+        trashed_name=$(generate_trashed_path "$target")
     fi
 
-    # Check if it's a dry run, and log what would happen.
+    # Check if it's a dry run, and log what would happen
     if $DRY_RUN; then
-        if $USE_TRASH; then
-            log_message "INFO" "[DRY RUN] Would $operation_desc ($operation_type): $target -> $trashed_name"
-        else
-            log_message "INFO" "[DRY RUN] Would $operation_desc ($operation_type): $target"
-        fi
+        log_message "INFO" "[DRY RUN] Would $operation_desc ($([[ "$is_dir" == true ]] && echo folder || echo file)): $target"
         return 0
     fi
-
+    
     # Attempt to get the size of the file/folder
     local size
     size=$(du -sb "$target" | cut -f1) || handle_error "Failed to get size for $target"
 
-    # Perform the actual operation based on whether trash is used
     if $USE_TRASH; then
-        if ! check_trash_quota "$size"; then
+        check_trash_quota "$size" || {
             log_message "ERROR" "Not enough space in trash folder to move: $target"
             return 1
-        fi
-        mv "$target" "$trashed_name" || handle_error "Failed to $operation_desc ($operation_type): $target"
-        log_message "INFO" "Successfully $operation_desc ($operation_type): $target -> $trashed_name"
+        }
+        mv "$target" "$trashed_name" || handle_error "Failed to $operation_desc: $target"
+        log_message "INFO" "Successfully $operation_desc: $target -> $trashed_name"
         ((items_trashed++))
-        ((space_freed+=size))
+        ((space_freed += size))
     else
         if [[ "$is_dir" == true ]]; then
-            rm -r "$target" || handle_error "Failed to $operation_desc ($operation_type): $target"
-            log_message "INFO" "Successfully $operation_desc ($operation_type): $target"
+            rm -r "$target" || handle_error "Failed to delete folder: $target"
+            log_message "INFO" "Successfully deleted folder: $target"
             ((dirs_deleted++))
-            ((space_freed+=size))
         else
-            rm "$target" || handle_error "Failed to $operation_desc ($operation_type): $target"
-            log_message "INFO" "Successfully $operation_desc ($operation_type): $target"
+            rm "$target" || handle_error "Failed to delete file: $target"
+            log_message "INFO" "Successfully deleted file: $target"
             ((files_deleted++))
-            ((space_freed+=size))
         fi
+        ((space_freed += size))
     fi
 }
 
+# Function to check the filesystem type of a path
 check_filesystem() {
     local path="$1"
     local fs_type
     fs_type=$(stat -f -c %T "$path")
-    
+
     log_message "DEBUG" "Filesystem type for $path: $fs_type"
-    
+
     # List of supported filesystems
     local supported_fs=("ext4" "xfs" "btrfs" "zfs")
-    
-    if [[ ! ${supported_fs[*]} =~ ${fs_type} ]]; then
+
+    # shellcheck disable=SC2076
+    if [[ ! " ${supported_fs[*]} " =~ " ${fs_type} " ]]; then
         log_message "WARNING" "Unsupported filesystem ($fs_type) for $path. Operations may fail."
     fi
 }
@@ -331,13 +332,12 @@ check_filesystem() {
 # Function to attempt deletion or moving of file and folder
 start_cleanup() {
     log_message "INFO" "Checking if deletion/moving is possible..."
-    
+
     check_filesystem "$source_folder"
 
     # Attempt to delete or move the source file first
     if [[ -f "$source_path" ]]; then
-        local file_operation_type="single file"
-        log_message "INFO" "Attempting to ${USE_TRASH:+move to trash}${USE_TRASH:-delete} ($file_operation_type): $source_path"
+        log_message "INFO" "Attempting to ${USE_TRASH:+move to trash}${USE_TRASH:-delete} file: $source_path"
         safe_remove "$source_path" false
     else
         log_message "INFO" "Source file already deleted or moved: $source_path"
@@ -363,13 +363,12 @@ start_cleanup() {
             if recursive_contains_video_files "$target_folder"; then
                 log_message "INFO" "Video files found. Not ${USE_TRASH:+moving}${USE_TRASH:-deleting} folder: $target_folder"
             else
-                    local folder_operation_type="folder"
-                    log_message "INFO" "No video files found. Attempting to ${USE_TRASH:+move to trash}${USE_TRASH:-delete} ($folder_operation_type): $target_folder"
-                    if [[ -d "$target_folder" ]]; then
-                        safe_remove "$target_folder" true
-                    else
-                        log_message "INFO" "Entire source folder already deleted or moved: $target_folder"
-                    fi
+                log_message "INFO" "No video files found. Attempting to ${USE_TRASH:+move to trash}${USE_TRASH:-delete} folder: $target_folder"
+                if [[ -d "$target_folder" ]]; then
+                    safe_remove "$target_folder" true
+                else
+                    log_message "INFO" "Entire source folder already deleted or moved: $target_folder"
+                fi
             fi
             ;;
         esac
@@ -403,11 +402,10 @@ sleep "$WAIT_TIME" || handle_error "Sleep command failed"
 start_cleanup
 
 # Prepare the summary message
-if $USE_TRASH; then
 formatted_space=$(numfmt --to=iec-i --suffix=B "$space_freed") || handle_error "Failed to format space freed"
+if $USE_TRASH; then
     summary="Cleanup complete. Items moved to trash: $items_trashed. Space freed: $formatted_space."
 else
-    formatted_space=$(numfmt --to=iec-i --suffix=B "$space_freed") || handle_error "Failed to format space freed"
     summary="Cleanup complete. Files deleted: $files_deleted. Directories deleted: $dirs_deleted. Space freed: $formatted_space."
 fi
 
