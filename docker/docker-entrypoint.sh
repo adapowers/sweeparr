@@ -6,7 +6,7 @@ log() {
     local log_file="${LOG_FILE_PATH:-/sweeparr/sweeparr.log}"
     local timestamp
     timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    echo "[$timestamp] $message" | tee -a "$log_file"
+    echo "[$timestamp] $message" >> "$log_file"
 }
 
 log "Container started or restarted."
@@ -69,7 +69,7 @@ chown -R sweeparr:sweeparr /sweeparr
 log "Set ownership of /sweeparr to user 'sweeparr'."
 
 # Tail the log file in the background to stdout
-tail -f "$LOG_FILE" &
+tail -F "$LOG_FILE" &
 log "Started tailing $LOG_FILE to stdout."
 
 # Function to log and execute the command
