@@ -17,9 +17,6 @@ RUN chmod +x /tmp/sweeparr/sweeparr.sh /usr/local/bin/docker-entrypoint.sh
 # Set environment variable for mode
 ENV RUN_MODE=docker
 
-# Direct logs to container stdout unless customized
-ENV LOG_FILE=/proc/1/fd/1
-
 # Use tini as the entrypoint
 ENTRYPOINT ["tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 
