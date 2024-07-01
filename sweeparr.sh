@@ -113,7 +113,7 @@ set_variables() {
             ;;
         
         # Handle import event type
-        Import)
+        Download)
             if [[ "$app_name" == "Sonarr" ]]; then
                 source_path="${sonarr_episodefile_sourcepath:-}"
                 source_folder="${sonarr_episodefile_sourcefolder:-}"
@@ -145,34 +145,62 @@ recursive_contains_video_files() {
     fi
 }
 
-# Function to determine operation eligibility and identify highest safe folder
+declare -A trie
+
+build_trie() {
+    trie=()
+    for path in "${DOWNLOAD_FOLDERS[@]}"; do
+        local current=""
+        for component in ${path//\// }; do
+            current+="/$component"
+            trie["$current"]=1
+        done
+        trie["$path:end"]=1
+    done
+}
+
 find_safe_parent() {
     local folder="$1"
-    local find_safe_parent=""
+    local current=""
+    local longest_protected=""
 
-    # Check if the folder directly matches any protected folder
-    for download_folder in "${DOWNLOAD_FOLDERS[@]}"; do
-        [[ "$folder" == "$download_folder" ]] && { echo "protected"; return; }
+    log_message "DEBUG" "Starting find_safe_parent with folder: $folder"
+
+    # Check if the folder is a protected folder or its parent
+    if [[ ${trie["$folder:end"]} -eq 1 ]] || [[ ${trie["$folder"]} -eq 1 ]]; then
+        log_message "DEBUG" "Folder $folder is protected or parent of protected"
+        echo "protected"
+        return
+    fi
+
+    # Find the longest protected prefix
+    for component in ${folder//\// }; do
+        current+="/$component"
+        if [[ ${trie["$current"]} -eq 1 ]]; then
+            longest_protected="$current"
+        fi
     done
 
-    # Initialize to the source folder in case no higher match is found
-    find_safe_parent="$folder"
+    # If no protected prefix found, it's outside
+    if [[ -z "$longest_protected" ]]; then
+        log_message "DEBUG" "Returning highest safe parent folder: outside"
+        echo "outside"
+        return
+    fi
 
-    # Traverse up from the folder to find the highest safe folder
-    while [[ "$folder" != "/" ]]; do
-        folder=$(dirname "$folder")
-        for download_folder in "${DOWNLOAD_FOLDERS[@]}"; do
-            if [[ "$folder" == "$download_folder"* ]]; then
-                find_safe_parent="$folder"
-                break
-            fi
-        done
-        # If a higher-level matching folder is found, return it
-        [[ "$find_safe_parent" != "$folder" ]] && { echo "$find_safe_parent"; return; }
+    # Find the highest safe parent
+    local safe_parent="$folder"
+    while [[ "$safe_parent" != "$longest_protected" && "$safe_parent" != "/" ]]; do
+        local parent
+        parent=$(dirname "$safe_parent")
+        if [[ "$parent" == "$longest_protected" ]]; then
+            break
+        fi
+        safe_parent="$parent"
     done
 
-    # If no suitable parent is found, deem the operation outside
-    echo "outside"
+    log_message "DEBUG" "Returning highest safe parent folder: $safe_parent"
+    echo "$safe_parent"
 }
 
 # Function to generate a unique name for moving to trash
@@ -186,10 +214,62 @@ generate_trashed_path() {
     echo "$trashed_path"
 }
 
+handle_symlink() {
+    local target="$1"
+    local operation="$2"  # 'delete' or 'trash'
+    
+    if [[ -L "$target" ]]; then
+        local link_target
+        link_target=$(readlink -f "$target")
+        log_message "INFO" "Handling symbolic link: $target -> $link_target"
+        
+        if [[ "$operation" == "delete" ]]; then
+            rm "$target" || handle_error "Failed to delete symbolic link: $target"
+            log_message "INFO" "Deleted symbolic link: $target"
+        elif [[ "$operation" == "trash" ]]; then
+            local trashed_name
+            trashed_name=$(generate_trashed_path "$target")
+            mv "$target" "$trashed_name" || handle_error "Failed to move symbolic link to trash: $target"
+            log_message "INFO" "Moved symbolic link to trash: $target -> $trashed_name"
+        fi
+        
+        return 0
+    fi
+    
+    return 1
+}
+
+check_trash_quota() {
+    local required_space="$1"
+    
+    # Get available space in KB
+    local available_space
+    available_space=$(df -Pk "$TRASH_FOLDER" | awk 'NR==2 {print $4}')
+    
+    # Convert to bytes
+    available_space=$((available_space * 1024))
+    
+    log_message "DEBUG" "Available space in trash folder: $available_space bytes"
+    log_message "DEBUG" "Required space for operation: $required_space bytes"
+    
+    if [[ "$available_space" -lt "$required_space" ]]; then
+        log_message "WARNING" "Not enough space in trash folder. Available: $available_space bytes, Required: $required_space bytes"
+        return 1
+    fi
+    
+    return 0
+}
+
 # Function to safely remove files or directories
 safe_remove() {
     local target="$1"
     local is_dir="$2"
+    
+    # Handle symlink first
+    if handle_symlink "$target" "${USE_TRASH:+trash}${USE_TRASH:-delete}"; then
+        return 0
+    fi
+
     local operation_type="file"
     local operation_desc="delete"  # Default operation description
     local trashed_name
@@ -218,6 +298,10 @@ safe_remove() {
 
     # Perform the actual operation based on whether trash is used
     if $USE_TRASH; then
+        if ! check_trash_quota "$size"; then
+            log_message "ERROR" "Not enough space in trash folder to move: $target"
+            return 1
+        fi
         mv "$target" "$trashed_name" || handle_error "Failed to $operation_desc ($operation_type): $target"
         log_message "INFO" "Successfully $operation_desc ($operation_type): $target -> $trashed_name"
         ((items_trashed++))
@@ -237,9 +321,26 @@ safe_remove() {
     fi
 }
 
+check_filesystem() {
+    local path="$1"
+    local fs_type
+    fs_type=$(stat -f -c %T "$path")
+    
+    log_message "DEBUG" "Filesystem type for $path: $fs_type"
+    
+    # List of supported filesystems
+    local supported_fs=("ext4" "xfs" "btrfs" "zfs")
+    
+    if [[ ! ${supported_fs[*]} =~ ${fs_type} ]]; then
+        log_message "WARNING" "Unsupported filesystem ($fs_type) for $path. Operations may fail."
+    fi
+}
+
 # Function to attempt deletion or moving of file and folder
 start_cleanup() {
     log_message "INFO" "Checking if deletion/moving is possible..."
+    
+    check_filesystem "$source_folder"
 
     # Attempt to delete or move the source file first
     if [[ -f "$source_path" ]]; then
@@ -290,18 +391,21 @@ start_cleanup() {
 # Call the function to set variables
 set_variables
 
-# Log initial information
-log_message "INFO" "Running cleanup script for $app_name"
-log_message "INFO" "Source: $source_path"
-log_message "INFO" "Destination: $dest_path"
-log_message "INFO" "Waiting $WAIT_TIME seconds for operations to complete..."
-sleep "$WAIT_TIME" || handle_error "Sleep command failed"
+# Build the trie when your script starts
+build_trie
 
 # Initialize statistics
 files_deleted=0
 dirs_deleted=0
 items_trashed=0
 space_freed=0
+
+# Log initial information
+log_message "INFO" "Running cleanup script for $app_name"
+log_message "INFO" "Source: $source_path"
+log_message "INFO" "Destination: $dest_path"
+log_message "INFO" "Waiting $WAIT_TIME seconds for operations to complete..."
+sleep "$WAIT_TIME" || handle_error "Sleep command failed"
 
 # Attempt to delete/move file and/or folder
 start_cleanup
