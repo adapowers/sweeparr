@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# Log function for uniform log formatting
+log() {
+    local message="$1"
+    local log_file="${LOG_FILE_PATH:-/sweeparr/sweeparr.log}"
+    local timestamp
+    timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+    echo "[$timestamp] $message" | tee -a "$log_file"
+}
+
+log "Container started or restarted."
+
 # Set PUID and PGID if provided
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
@@ -16,6 +27,7 @@ fi
 
 # Copy the script from the temporary location to the shared volume directory
 cp /tmp/sweeparr/sweeparr.sh /sweeparr/sweeparr.sh
+log "Script 'sweeparr.sh' copied to /sweeparr."
 
 # Initialize blank .env config and log files if they don't exist
 CONFIG_FILE=${CONFIG_FILE_PATH:-/sweeparr/.env}
@@ -41,22 +53,30 @@ TRASH_FOLDER=""
 # Time to wait before execution
 WAIT_TIME=45
 EOF
-    echo "Created a new configuration file at $CONFIG_FILE. Please customize it as needed."
     chown sweeparr:sweeparr "$CONFIG_FILE"
+    log "Log file $CONFIG_FILE created and ownership set to user 'sweeparr'."
 fi
 
 # Create the log file if it doesn't exist
 if [ ! -f "$LOG_FILE" ]; then
     touch "$LOG_FILE"
     chown sweeparr:sweeparr "$LOG_FILE"
+    log "Log file $LOG_FILE created and ownership set to user 'sweeparr'."
 fi
-
-# Hardlink the log file to stdout
-ln -sf /proc/1/fd/1 "$LOG_FILE"
 
 # Set ownership of the shared volume directory
 chown -R sweeparr:sweeparr /sweeparr
+log "Set ownership of /sweeparr to user 'sweeparr'."
+
+# Tail the log file in the background to stdout
+tail -f "$LOG_FILE" &
+log "Started tailing $LOG_FILE to stdout."
+
+# Function to log and execute the command
+log_and_exec() {
+    log "Executed command: $*"
+    exec "$@"
+}
 
 # Execute the passed command
-exec "$@"
-
+log_and_exec "$@"
