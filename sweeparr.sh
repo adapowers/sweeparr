@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Sweeparr for Sonarr/Radarr
 # Author: @adapowers
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # Get the directory of the script
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Set default log file if not defined in .env
 : "${LOG_FILE:=$SCRIPT_DIR/sweeparr.log}"
@@ -25,9 +25,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CONFIG_FILE="$SCRIPT_DIR/.env"
 
 # Override config file location if provided
-if [ -n "${CONFIG_FILE_PATH:-}" ]; then
-    CONFIG_FILE="$CONFIG_FILE_PATH"
-fi
+CONFIG_FILE="${CONFIG_FILE_PATH:-$CONFIG_FILE}"
 
 # Source the configuration file if it exists
 if [ -f "$CONFIG_FILE" ]; then
@@ -80,9 +78,7 @@ log_message "DEBUG" "Starting script"
 
 # Ensure DOWNLOAD_FOLDERS are readable
 for folder in "${DOWNLOAD_FOLDERS[@]}"; do
-    if [ ! -r "$folder" ]; then
-        handle_error "Download folder $folder is not readable. Exiting."
-    fi
+    [ ! -r "$folder" ] && handle_error "Download folder $folder is not readable. Exiting."
 done
 
 # Log configuration
@@ -106,43 +102,39 @@ set_variables() {
 
     # Handle different event types
     case "$event_type" in
-        # Handle test event type
-        Test)
-            log_message "INFO" "Test event detected. Exiting script."
-            exit 0
-            ;;
-        
-        # Handle import event type
-        Download)
-            if [[ "$app_name" == "Sonarr" ]]; then
-                source_path="${sonarr_episodefile_sourcepath:-}"
-                source_folder="${sonarr_episodefile_sourcefolder:-}"
-                dest_path="${sonarr_episodefile_path:-}"
-            elif [[ "$app_name" == "Radarr" ]]; then
-                source_path="${radarr_moviefile_sourcepath:-}"
-                source_folder="${radarr_moviefile_sourcefolder:-}"
-                dest_path="${radarr_moviefile_path:-}"
-            else
-                handle_error "No $app_name import event environment variables detected. (This is to be expected if you're running the script manually.)"
-            fi
-            # Log paths
-            log_message "DEBUG" "Set variables: source_path=$source_path, source_folder=$source_folder, dest_path=$dest_path"
-            ;;
-        
-        *)
-            handle_error "This script is only designed for the 'Import' event type."
-            ;;
+    # Handle test event type
+    Test)
+        log_message "INFO" "Test event detected. Exiting script."
+        exit 0
+        ;;
+
+    # Handle import event type
+    Download|Import)
+        if [[ "$app_name" == "Sonarr" ]]; then
+            source_path="${sonarr_episodefile_sourcepath:-}"
+            source_folder="${sonarr_episodefile_sourcefolder:-}"
+            dest_path="${sonarr_episodefile_path:-}"
+        elif [[ "$app_name" == "Radarr" ]]; then
+            source_path="${radarr_moviefile_sourcepath:-}"
+            source_folder="${radarr_moviefile_sourcefolder:-}"
+            dest_path="${radarr_moviefile_path:-}"
+        else
+            handle_error "No $app_name import event environment variables detected. (This is to be expected if you're running the script manually.)"
+        fi
+        # Log paths
+        log_message "DEBUG" "Set variables: source_path=$source_path, source_folder=$source_folder, dest_path=$dest_path"
+        ;;
+
+    *)
+        handle_error "This script is only designed for the 'Import' or 'Download' event types."
+        ;;
     esac
 }
 
 # Function to check if a folder contains video files recursively
 recursive_contains_video_files() {
-    local folder="$1"
-    if find "$folder" -type f | grep -qE "$VIDEO_EXTENSIONS"; then
-        return 0  # True, contains video files
-    else
-        return 1  # False, doesn't contain video files
-    fi
+    # returns 0 on true, 1 on false
+    find "$1" -type f | grep -qE "$VIDEO_EXTENSIONS"
 }
 
 declare -A trie
@@ -360,17 +352,17 @@ start_cleanup() {
         log_message "DEBUG" "Safe parent folder determined: $target_folder"
 
         case "$target_folder" in
-            protected)
-                log_message "INFO" "Known download folder, will not be deleted: $source_folder"
-                ;;
-            outside)
-                log_message "INFO" "Folder outside known locations, will not be deleted: $source_folder"
-                ;;
-            *)
-                log_message "INFO" "Checking for remaining video files in: $target_folder"
-                if recursive_contains_video_files "$target_folder"; then
-                    log_message "INFO" "Video files found. Not ${USE_TRASH:+moving}${USE_TRASH:-deleting} folder: $target_folder"
-                else
+        protected)
+            log_message "INFO" "Known download folder, will not be deleted: $source_folder"
+            ;;
+        outside)
+            log_message "INFO" "Folder outside known locations, will not be deleted: $source_folder"
+            ;;
+        *)
+            log_message "INFO" "Checking for remaining video files in: $target_folder"
+            if recursive_contains_video_files "$target_folder"; then
+                log_message "INFO" "Video files found. Not ${USE_TRASH:+moving}${USE_TRASH:-deleting} folder: $target_folder"
+            else
                     local folder_operation_type="folder"
                     log_message "INFO" "No video files found. Attempting to ${USE_TRASH:+move to trash}${USE_TRASH:-delete} ($folder_operation_type): $target_folder"
                     if [[ -d "$target_folder" ]]; then
@@ -378,8 +370,8 @@ start_cleanup() {
                     else
                         log_message "INFO" "Entire source folder already deleted or moved: $target_folder"
                     fi
-                fi
-                ;;
+            fi
+            ;;
         esac
     else
         log_message "INFO" "Source folder already deleted or moved: $source_folder"
@@ -412,7 +404,7 @@ start_cleanup
 
 # Prepare the summary message
 if $USE_TRASH; then
-    formatted_space=$(numfmt --to=iec-i --suffix=B "$space_freed") || handle_error "Failed to format space freed"
+formatted_space=$(numfmt --to=iec-i --suffix=B "$space_freed") || handle_error "Failed to format space freed"
     summary="Cleanup complete. Items moved to trash: $items_trashed. Space freed: $formatted_space."
 else
     formatted_space=$(numfmt --to=iec-i --suffix=B "$space_freed") || handle_error "Failed to format space freed"
