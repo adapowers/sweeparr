@@ -118,7 +118,7 @@ set_variables() {
     fi
 
     # Log event type
-    log_message "INFO" "Event type: $event_type"
+    log_message "DEBUG" "Event type: $event_type"
 
     # Handle different event types
     case "$event_type" in
@@ -126,7 +126,7 @@ set_variables() {
         log_message "INFO" "Test event detected. Exiting script."
         exit 0
         ;;
-    Download|Import)
+    Download)
         if [[ "$app_name" == "Sonarr" ]]; then
             source_path="${sonarr_episodefile_sourcepath:-}"
             source_folder="${sonarr_episodefile_sourcefolder:-}"
